@@ -30,7 +30,7 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 
-	log.Printf("polling every %s", *interval)
+	log.Printf("gh-pr-notify: polling every %s", *interval)
 
 	// Run first poll immediately, then loop.
 	poll(statePath)
