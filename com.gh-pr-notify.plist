@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd does NOT expand $HOME or ${HOME} in plist values.
+  Replace YOUR_HOME below with your actual home directory path, e.g. /Users/kyle
+
+  Install:
+    sed "s|YOUR_HOME|$HOME|g" com.gh-pr-notify.plist > ~/Library/LaunchAgents/com.gh-pr-notify.plist
+    launchctl load ~/Library/LaunchAgents/com.gh-pr-notify.plist
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.gh-pr-notify</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>YOUR_HOME/.local/bin/gh-pr-notify</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>YOUR_HOME/.local/state/gh-pr-notify/gh-pr-notify.log</string>
+	<key>StandardErrorPath</key>
+	<string>YOUR_HOME/.local/state/gh-pr-notify/gh-pr-notify.log</string>
+</dict>
+</plist>
