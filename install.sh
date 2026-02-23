@@ -10,6 +10,11 @@ STATE_DIR="${HOME}/.local/state/gh-pr-notify"
 PLIST_NAME="com.gh-pr-notify.plist"
 PLIST_DIR="${HOME}/Library/LaunchAgents"
 
+# Optional config via environment variables.
+SOUND="${SOUND:-default}"
+BARK_KEY="${BARK_KEY:-}"
+BARK_SERVER="${BARK_SERVER:-https://api.day.app}"
+
 info() { printf '  %s\n' "$@"; }
 error() {
   printf '  ERROR: %s\n' "$@" >&2
@@ -78,7 +83,8 @@ build_from_source() {
   trap 'rm -rf "$tmpdir"' EXIT
 
   git clone --depth 1 "https://github.com/${REPO}.git" "$tmpdir/gh-pr-notify" 2>/dev/null
-  (cd "$tmpdir/gh-pr-notify" && go build -o "${INSTALL_DIR}/gh-pr-notify" .)
+  build_version="$(cd "$tmpdir/gh-pr-notify" && git describe --tags --always 2>/dev/null || echo "dev")"
+  (cd "$tmpdir/gh-pr-notify" && go build -ldflags "-X main.version=${build_version}" -o "${INSTALL_DIR}/gh-pr-notify" .)
   info "Built successfully"
 }
 
@@ -86,6 +92,24 @@ build_from_source() {
 
 install_plist() {
   mkdir -p "$PLIST_DIR" "$STATE_DIR"
+
+  # Build ProgramArguments entries: binary path + optional flags.
+  prog_args="		<string>${INSTALL_DIR}/gh-pr-notify</string>"
+  if [ "$SOUND" != "default" ]; then
+    prog_args="${prog_args}
+		<string>--sound</string>
+		<string>${SOUND}</string>"
+  fi
+  if [ -n "$BARK_KEY" ]; then
+    prog_args="${prog_args}
+		<string>--bark-key</string>
+		<string>${BARK_KEY}</string>"
+    if [ "$BARK_SERVER" != "https://api.day.app" ]; then
+      prog_args="${prog_args}
+		<string>--bark-server</string>
+		<string>${BARK_SERVER}</string>"
+    fi
+  fi
 
   cat >"${PLIST_DIR}/${PLIST_NAME}" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -96,7 +120,7 @@ install_plist() {
 	<string>com.gh-pr-notify</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>${INSTALL_DIR}/gh-pr-notify</string>
+${prog_args}
 	</array>
 	<key>EnvironmentVariables</key>
 	<dict>
@@ -159,4 +183,9 @@ info "  Logs:    ${STATE_DIR}/gh-pr-notify.log"
 info "  Config:  ${PLIST_DIR}/${PLIST_NAME}"
 info ""
 info "Polls every 60s. You'll get a notification when a PR is approved."
+if [ -n "$BARK_KEY" ]; then
+  info "Bark push notifications enabled (server: ${BARK_SERVER})."
+else
+  info "For iOS notifications, reinstall with: BARK_KEY=your-key sh install.sh"
+fi
 info "To uninstall: curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | sh -s -- --uninstall"
