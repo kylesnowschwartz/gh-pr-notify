@@ -6,41 +6,30 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
-	"strings"
 	"time"
 )
 
-// sendNotification sends a macOS notification for a PR event via osascript.
+// sendNotification sends a macOS notification for a PR event via terminal-notifier.
+// Clicking the notification opens the PR URL in the default browser.
 //
 // Sound can be "default", "none" (silent), or any macOS system sound name
 // (Basso, Blow, Bottle, Frog, Funk, Glass, Hero, Morse, Ping, Pop, Purr,
 // Sosumi, Submarine, Tink). Pass "none" to suppress the sound entirely.
-//
-// osascript can't open URLs on click (that goes to Script Editor), but the
-// notification text contains the PR identifier and title - enough to find it.
 func sendNotification(pr PR, title string, sound string) error {
-	subtitle := pr.Key()
-	message := pr.Title
-
-	// AppleScript double-quoted strings need backslashes and quotes escaped.
-	// Order matters: escape backslashes first, then quotes.
-	escape := func(s string) string {
-		s = strings.ReplaceAll(s, `\`, `\\`)
-		s = strings.ReplaceAll(s, `"`, `\"`)
-		return s
+	args := []string{
+		"-title", title,
+		"-subtitle", pr.Key(),
+		"-message", pr.Title,
+		"-open", pr.URL,
+		"-group", pr.Key(),
 	}
-
-	script := fmt.Sprintf(
-		`display notification "%s" with title "%s" subtitle "%s"`,
-		escape(message), escape(title), escape(subtitle),
-	)
 	if sound != "none" {
-		script += fmt.Sprintf(` sound name "%s"`, escape(sound))
+		args = append(args, "-sound", sound)
 	}
 
-	cmd := exec.Command("osascript", "-e", script)
+	cmd := exec.Command("terminal-notifier", args...)
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("osascript notification: %w", err)
+		return fmt.Errorf("terminal-notifier: %w", err)
 	}
 
 	return nil

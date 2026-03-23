@@ -153,10 +153,13 @@ func notify(pr PR, title, sound string, bark barkConfig) {
 	}
 }
 
-// checkDependencies verifies gh is installed and authenticated.
+// checkDependencies verifies gh and terminal-notifier are installed, and gh is authenticated.
 func checkDependencies() error {
 	if _, err := exec.LookPath("gh"); err != nil {
 		return fmt.Errorf("gh CLI not found in PATH - install with: brew install gh")
+	}
+	if _, err := exec.LookPath("terminal-notifier"); err != nil {
+		return fmt.Errorf("terminal-notifier not found in PATH - install with: brew install terminal-notifier")
 	}
 
 	cmd := exec.Command("gh", "auth", "status")
