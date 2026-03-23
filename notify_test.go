@@ -19,7 +19,7 @@ func TestSendNotification(t *testing.T) {
 		},
 	}
 
-	if err := sendNotification(pr, "default"); err != nil {
+	if err := sendNotification(pr, "PR Approved", "default"); err != nil {
 		t.Fatalf("sendNotification: %v", err)
 	}
 }
@@ -35,7 +35,7 @@ func TestSendNotificationSilent(t *testing.T) {
 		},
 	}
 
-	if err := sendNotification(pr, "none"); err != nil {
+	if err := sendNotification(pr, "PR Approved", "none"); err != nil {
 		t.Fatalf("sendNotification silent: %v", err)
 	}
 }
@@ -51,7 +51,7 @@ func TestSendNotificationEscaping(t *testing.T) {
 		},
 	}
 
-	if err := sendNotification(pr, "default"); err != nil {
+	if err := sendNotification(pr, "New Activity", "default"); err != nil {
 		t.Fatalf("sendNotification with special chars: %v", err)
 	}
 }
@@ -93,7 +93,7 @@ func TestSendBarkNotification(t *testing.T) {
 		},
 	}
 
-	err := sendBarkNotification(pr, "test-device-key", srv.URL, "birdsong")
+	err := sendBarkNotification(pr, "PR Approved", "test-device-key", srv.URL, "birdsong")
 	if err != nil {
 		t.Fatalf("sendBarkNotification: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestSendBarkNotificationEmptySound(t *testing.T) {
 		Repository: Repository{Name: "repo", NameWithOwner: "test/repo"},
 	}
 
-	err := sendBarkNotification(pr, "key", srv.URL, "")
+	err := sendBarkNotification(pr, "PR Approved", "key", srv.URL, "")
 	if err != nil {
 		t.Fatalf("sendBarkNotification: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestSendBarkNotificationServerError(t *testing.T) {
 		Repository: Repository{Name: "repo", NameWithOwner: "test/repo"},
 	}
 
-	err := sendBarkNotification(pr, "bad-key", srv.URL, "")
+	err := sendBarkNotification(pr, "Changes Requested", "bad-key", srv.URL, "")
 	if err == nil {
 		t.Fatal("expected error for bad device key, got nil")
 	}

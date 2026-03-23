@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// sendNotification sends a macOS notification for an approved PR via osascript.
+// sendNotification sends a macOS notification for a PR event via osascript.
 //
 // Sound can be "default", "none" (silent), or any macOS system sound name
 // (Basso, Blow, Bottle, Frog, Funk, Glass, Hero, Morse, Ping, Pop, Purr,
@@ -18,8 +18,7 @@ import (
 //
 // osascript can't open URLs on click (that goes to Script Editor), but the
 // notification text contains the PR identifier and title - enough to find it.
-func sendNotification(pr PR, sound string) error {
-	title := "PR Approved"
+func sendNotification(pr PR, title string, sound string) error {
 	subtitle := pr.Key()
 	message := pr.Title
 
@@ -62,10 +61,10 @@ var barkHTTPClient = &http.Client{Timeout: 10 * time.Second}
 
 // sendBarkNotification pushes a notification to an iOS device via the Bark API.
 // Tapping the notification opens the PR URL in Safari.
-func sendBarkNotification(pr PR, key, server, sound string) error {
+func sendBarkNotification(pr PR, title string, key, server, sound string) error {
 	payload := barkPayload{
 		DeviceKey: key,
-		Title:     "PR Approved",
+		Title:     title,
 		Subtitle:  pr.Key(),
 		Body:      pr.Title,
 		URL:       pr.URL,

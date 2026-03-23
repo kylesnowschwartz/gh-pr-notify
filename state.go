@@ -8,6 +8,13 @@ import (
 	"path/filepath"
 )
 
+// PRState tracks the last-seen state of a PR for change detection.
+type PRState struct {
+	ReviewDecision string `json:"reviewDecision"`
+	CommentCount   int    `json:"commentCount"`
+	CommitCount    int    `json:"commitCount"`
+}
+
 // stateDir returns ~/.local/state/gh-pr-notify/, creating it if needed.
 func stateDir() (string, error) {
 	home, err := os.UserHomeDir()
@@ -23,28 +30,41 @@ func stateDir() (string, error) {
 	return dir, nil
 }
 
-// loadState reads the state file and returns a map of PR key -> reviewDecision.
+// loadState reads the state file and returns a map of PR key -> PRState.
 // Returns an empty map if the file doesn't exist yet.
-func loadState(path string) (map[string]string, error) {
+// Migrates from the old map[string]string format if detected.
+func loadState(path string) (map[string]PRState, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return make(map[string]string), nil
+		return make(map[string]PRState), nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("reading state file: %w", err)
 	}
 
-	state := make(map[string]string)
-	if err := json.Unmarshal(data, &state); err != nil {
+	// Try new format first. json.Unmarshal returns an error when it encounters
+	// a string value where it expects a PRState object, so a type mismatch
+	// falls through to the old-format migration below.
+	state := make(map[string]PRState)
+	if err := json.Unmarshal(data, &state); err == nil {
+		return state, nil
+	}
+
+	// Fall back to old format (map[string]string) and migrate.
+	oldState := make(map[string]string)
+	if err := json.Unmarshal(data, &oldState); err != nil {
 		return nil, fmt.Errorf("parsing state file: %w", err)
 	}
 
+	for k, v := range oldState {
+		state[k] = PRState{ReviewDecision: v}
+	}
 	return state, nil
 }
 
 // saveState writes the state map to disk atomically.
 // Writes to a temp file in the same directory, then renames.
-func saveState(path string, state map[string]string) error {
+func saveState(path string, state map[string]PRState) error {
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshaling state: %w", err)

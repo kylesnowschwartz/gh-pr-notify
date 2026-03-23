@@ -75,10 +75,10 @@ type barkConfig struct {
 	sound  string // notification sound name
 }
 
-// poll fetches open PRs, compares against saved state, notifies on new approvals,
+// poll fetches involved PRs, compares against saved state, notifies on changes,
 // and saves the new state.
 func poll(statePath string, bark barkConfig, sound string) {
-	prs, err := fetchOpenPRs()
+	prs, err := fetchInvolvedPRs()
 	if err != nil {
 		log.Printf("error fetching PRs: %v", err)
 		return
@@ -90,30 +90,46 @@ func poll(statePath string, bark barkConfig, sound string) {
 		return
 	}
 
-	newState := make(map[string]string, len(prs))
-	approvedCount := 0
+	newState := make(map[string]PRState, len(prs))
+	notifyCount := 0
 
 	for _, pr := range prs {
-		decision, err := fetchReviewDecision(pr.Repository.NameWithOwner, pr.Number)
+		details, err := fetchPRDetails(pr.Repository.NameWithOwner, pr.Number)
 		if err != nil {
-			log.Printf("error fetching review for %s: %v", pr.Key(), err)
+			log.Printf("error fetching details for %s: %v", pr.Key(), err)
 			continue
 		}
 
 		key := pr.Key()
-		newState[key] = decision
+		newState[key] = details
 
-		if decision == "APPROVED" && prevState[key] != "APPROVED" {
-			approvedCount++
+		prev, seen := prevState[key]
+		if !seen {
+			// First-seen PR: save as baseline, don't notify.
+			continue
+		}
+
+		if details.ReviewDecision == "APPROVED" && prev.ReviewDecision != "APPROVED" {
+			notifyCount++
 			log.Printf("APPROVED: %s - %s", key, pr.Title)
-			if err := sendNotification(pr, sound); err != nil {
-				log.Printf("notification error for %s: %v", key, err)
-			}
-			if bark.key != "" {
-				if err := sendBarkNotification(pr, bark.key, bark.server, bark.sound); err != nil {
-					log.Printf("bark notification error for %s: %v", key, err)
-				}
-			}
+			notify(pr, "PR Approved", sound, bark)
+		}
+		if details.ReviewDecision == "CHANGES_REQUESTED" && prev.ReviewDecision != "CHANGES_REQUESTED" {
+			notifyCount++
+			log.Printf("CHANGES_REQUESTED: %s - %s", key, pr.Title)
+			notify(pr, "Changes Requested", sound, bark)
+		}
+		if details.CommentCount > prev.CommentCount {
+			delta := details.CommentCount - prev.CommentCount
+			notifyCount++
+			log.Printf("NEW_ACTIVITY: %s - %s (+%d comments/reviews)", key, pr.Title, delta)
+			notify(pr, "New Activity", sound, bark)
+		}
+		if details.CommitCount > prev.CommitCount {
+			delta := details.CommitCount - prev.CommitCount
+			notifyCount++
+			log.Printf("NEW_COMMITS: %s - %s (+%d commits)", key, pr.Title, delta)
+			notify(pr, "New Commits", sound, bark)
 		}
 	}
 
@@ -122,7 +138,19 @@ func poll(statePath string, bark barkConfig, sound string) {
 		return
 	}
 
-	log.Printf("poll complete: %d PRs, %d new approvals", len(prs), approvedCount)
+	log.Printf("poll complete: %d PRs, %d notifications", len(prs), notifyCount)
+}
+
+// notify sends a notification via macOS and optionally Bark.
+func notify(pr PR, title, sound string, bark barkConfig) {
+	if err := sendNotification(pr, title, sound); err != nil {
+		log.Printf("notification error for %s: %v", pr.Key(), err)
+	}
+	if bark.key != "" {
+		if err := sendBarkNotification(pr, title, bark.key, bark.server, bark.sound); err != nil {
+			log.Printf("bark notification error for %s: %v", pr.Key(), err)
+		}
+	}
 }
 
 // checkDependencies verifies gh is installed and authenticated.

@@ -21,22 +21,52 @@ type Repository struct {
 	NameWithOwner string `json:"nameWithOwner"`
 }
 
-// Key returns a stable identifier like "envato/repo#123" for state tracking.
+// Key returns a stable identifier like "owner/repo#123" for state tracking.
 func (pr PR) Key() string {
 	return pr.Repository.NameWithOwner + "#" + strconv.Itoa(pr.Number)
 }
 
-// fetchOpenPRs returns all open PRs authored by the authenticated user.
-func fetchOpenPRs() ([]PR, error) {
+// fetchInvolvedPRs returns open PRs where the authenticated user is the author
+// or a requested reviewer. Results are deduplicated by PR key.
+func fetchInvolvedPRs() ([]PR, error) {
+	authored, err := searchPRs("--author", "@me")
+	if err != nil {
+		return nil, fmt.Errorf("authored PRs: %w", err)
+	}
+
+	reviewing, err := searchPRs("--review-requested", "@me")
+	if err != nil {
+		return nil, fmt.Errorf("reviewer PRs: %w", err)
+	}
+
+	seen := make(map[string]bool, len(authored))
+	for _, pr := range authored {
+		seen[pr.Key()] = true
+	}
+
+	merged := make([]PR, len(authored))
+	copy(merged, authored)
+	for _, pr := range reviewing {
+		if !seen[pr.Key()] {
+			merged = append(merged, pr)
+			seen[pr.Key()] = true
+		}
+	}
+
+	return merged, nil
+}
+
+func searchPRs(filterFlag, filterValue string) ([]PR, error) {
 	cmd := exec.Command("gh", "search", "prs",
-		"--author", "@me",
+		filterFlag, filterValue,
 		"--state", "open",
+		"--limit", "200",
 		"--json", "number,title,url,repository",
 	)
 
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("gh search prs: %w", err)
+		return nil, fmt.Errorf("gh search prs %s %s: %w", filterFlag, filterValue, err)
 	}
 
 	var prs []PR
@@ -47,29 +77,42 @@ func fetchOpenPRs() ([]PR, error) {
 	return prs, nil
 }
 
-// reviewDecision holds the JSON response from gh pr view.
-type reviewDecision struct {
-	ReviewDecision string `json:"reviewDecision"`
+// prDetails holds the JSON response from gh pr view with expanded fields.
+type prDetails struct {
+	ReviewDecision string          `json:"reviewDecision"`
+	Comments       json.RawMessage `json:"comments"`
+	Commits        json.RawMessage `json:"commits"`
+	Reviews        json.RawMessage `json:"reviews"`
 }
 
-// fetchReviewDecision returns the reviewDecision string for a single PR.
-// Possible values: "APPROVED", "REVIEW_REQUIRED", "CHANGES_REQUESTED", or "" (no rules).
-func fetchReviewDecision(repo string, number int) (string, error) {
+// fetchPRDetails returns the current state of a PR: review decision,
+// combined comment+review count, and commit count.
+func fetchPRDetails(repo string, number int) (PRState, error) {
 	cmd := exec.Command("gh", "pr", "view",
 		strconv.Itoa(number),
 		"--repo", repo,
-		"--json", "reviewDecision",
+		"--json", "reviewDecision,comments,commits,reviews",
 	)
 
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("gh pr view %s#%d: %w", repo, number, err)
+		return PRState{}, fmt.Errorf("gh pr view %s#%d: %w", repo, number, err)
 	}
 
-	var rd reviewDecision
-	if err := json.Unmarshal(out, &rd); err != nil {
-		return "", fmt.Errorf("parsing review decision for %s#%d: %w", repo, number, err)
+	var details prDetails
+	if err := json.Unmarshal(out, &details); err != nil {
+		return PRState{}, fmt.Errorf("parsing details for %s#%d: %w", repo, number, err)
 	}
 
-	return rd.ReviewDecision, nil
+	// Count array lengths without fully parsing the objects.
+	var comments, commits, reviews []json.RawMessage
+	json.Unmarshal(details.Comments, &comments)
+	json.Unmarshal(details.Commits, &commits)
+	json.Unmarshal(details.Reviews, &reviews)
+
+	return PRState{
+		ReviewDecision: details.ReviewDecision,
+		CommentCount:   len(comments) + len(reviews),
+		CommitCount:    len(commits),
+	}, nil
 }
