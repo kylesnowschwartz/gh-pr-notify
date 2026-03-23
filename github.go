@@ -105,10 +105,17 @@ func fetchPRDetails(repo string, number int) (PRState, error) {
 	}
 
 	// Count array lengths without fully parsing the objects.
+	// Unmarshal errors (e.g. null or missing fields) leave slices nil; len(nil) == 0.
 	var comments, commits, reviews []json.RawMessage
-	json.Unmarshal(details.Comments, &comments)
-	json.Unmarshal(details.Commits, &commits)
-	json.Unmarshal(details.Reviews, &reviews)
+	if err := json.Unmarshal(details.Comments, &comments); err != nil {
+		return PRState{}, fmt.Errorf("parsing comments for %s#%d: %w", repo, number, err)
+	}
+	if err := json.Unmarshal(details.Commits, &commits); err != nil {
+		return PRState{}, fmt.Errorf("parsing commits for %s#%d: %w", repo, number, err)
+	}
+	if err := json.Unmarshal(details.Reviews, &reviews); err != nil {
+		return PRState{}, fmt.Errorf("parsing reviews for %s#%d: %w", repo, number, err)
+	}
 
 	return PRState{
 		ReviewDecision: details.ReviewDecision,
