@@ -94,7 +94,11 @@ install_plist() {
   mkdir -p "$PLIST_DIR" "$STATE_DIR"
 
   # Build ProgramArguments entries: binary path + optional flags.
-  prog_args="		<string>${INSTALL_DIR}/gh-pr-notify</string>"
+  # --log-file lets gh-pr-notify own and rotate its log; launchd's redirect
+  # cannot rotate, so it only catches startup failures.
+  prog_args="		<string>${INSTALL_DIR}/gh-pr-notify</string>
+		<string>--log-file</string>
+		<string>${STATE_DIR}/gh-pr-notify.log</string>"
   if [ "$SOUND" != "default" ]; then
     prog_args="${prog_args}
 		<string>--sound</string>
@@ -132,9 +136,9 @@ ${prog_args}
 	<key>KeepAlive</key>
 	<true/>
 	<key>StandardOutPath</key>
-	<string>${STATE_DIR}/gh-pr-notify.log</string>
+	<string>${STATE_DIR}/launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>${STATE_DIR}/gh-pr-notify.log</string>
+	<string>${STATE_DIR}/launchd.log</string>
 </dict>
 </plist>
 PLIST

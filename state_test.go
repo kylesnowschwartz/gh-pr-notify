@@ -84,39 +84,37 @@ func TestSaveStateAtomic(t *testing.T) {
 	}
 }
 
-func TestApprovalTransitionDetection(t *testing.T) {
-	// Simulates the diff logic from poll().
-	prevState := map[string]string{
-		"org/repo#1": "REVIEW_REQUIRED",
-		"org/repo#2": "APPROVED",
-		"org/repo#3": "CHANGES_REQUESTED",
-		"org/repo#4": "",
+// State files written before merge notification existed hold raw reviewDecision
+// values. They must still load and compare correctly against the stored
+// "APPROVED" marker, since a load error stops every poll.
+func TestLoadStateReadsPreMergeValues(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+
+	legacy := `{
+  "envato/repo#1": "REVIEW_REQUIRED",
+  "envato/repo#2": "APPROVED",
+  "envato/repo#3": ""
+}`
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatalf("writing legacy state: %v", err)
 	}
 
-	// Simulate current poll results.
-	currentDecisions := map[string]string{
-		"org/repo#1": "APPROVED", // transitioned -> should notify
-		"org/repo#2": "APPROVED", // already approved -> no notify
-		"org/repo#3": "APPROVED", // transitioned -> should notify
-		"org/repo#4": "APPROVED", // transitioned -> should notify
-		"org/repo#5": "APPROVED", // new PR, already approved -> should notify
+	state, err := loadState(path)
+	if err != nil {
+		t.Fatalf("loadState on a pre-merge state file: %v", err)
 	}
 
-	var notified []string
-	for key, decision := range currentDecisions {
-		if decision == "APPROVED" && prevState[key] != "APPROVED" {
-			notified = append(notified, key)
-		}
+	if len(state) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(state))
 	}
-
-	if len(notified) != 4 {
-		t.Errorf("expected 4 notifications, got %d: %v", len(notified), notified)
+	if state["envato/repo#2"] != approved {
+		t.Errorf("state[envato/repo#2] = %q, want %q", state["envato/repo#2"], approved)
 	}
-
-	// org/repo#2 should NOT be in the list.
-	for _, key := range notified {
-		if key == "org/repo#2" {
-			t.Errorf("org/repo#2 was already APPROVED, should not notify")
-		}
+	if state["envato/repo#1"] == approved {
+		t.Error("REVIEW_REQUIRED should not read as approved")
+	}
+	if state["envato/repo#3"] == approved {
+		t.Error("an empty decision should not read as approved")
 	}
 }

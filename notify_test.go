@@ -5,53 +5,75 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 )
 
-func TestSendNotification(t *testing.T) {
-	pr := PR{
-		Number: 1,
-		Title:  "test: add program name to startup log",
-		URL:    "https://github.com/kylesnowschwartz/gh-pr-notify/pull/1",
-		Repository: Repository{
-			Name:          "gh-pr-notify",
-			NameWithOwner: "kylesnowschwartz/gh-pr-notify",
-		},
+// osascript tests post real notifications to the desktop, so they only run when
+// asked for: GH_PR_NOTIFY_TEST_DESKTOP=1 go test -run Notification
+func requireDesktopOptIn(t *testing.T) {
+	t.Helper()
+	if os.Getenv("GH_PR_NOTIFY_TEST_DESKTOP") != "1" {
+		t.Skip("set GH_PR_NOTIFY_TEST_DESKTOP=1 to post real desktop notifications")
+	}
+}
+
+func TestSendNotificationApproved(t *testing.T) {
+	requireDesktopOptIn(t)
+
+	event := prEvent{
+		headline: headlineApproved,
+		key:      "kylesnowschwartz/gh-pr-notify#1",
+		prTitle:  "test: add program name to startup log",
+		url:      "https://github.com/kylesnowschwartz/gh-pr-notify/pull/1",
 	}
 
-	if err := sendNotification(pr, "default"); err != nil {
+	if err := sendNotification(event, "default"); err != nil {
+		t.Fatalf("sendNotification: %v", err)
+	}
+}
+
+func TestSendNotificationMerged(t *testing.T) {
+	requireDesktopOptIn(t)
+
+	event := prEvent{
+		headline: headlineMerged,
+		key:      "kylesnowschwartz/gh-pr-notify#2",
+		prTitle:  "feat: notify on merge",
+		url:      "https://github.com/kylesnowschwartz/gh-pr-notify/pull/2",
+	}
+
+	if err := sendNotification(event, "default"); err != nil {
 		t.Fatalf("sendNotification: %v", err)
 	}
 }
 
 func TestSendNotificationSilent(t *testing.T) {
-	pr := PR{
-		Number: 1,
-		Title:  "test: silent notification",
-		URL:    "https://github.com/kylesnowschwartz/gh-pr-notify/pull/1",
-		Repository: Repository{
-			Name:          "gh-pr-notify",
-			NameWithOwner: "kylesnowschwartz/gh-pr-notify",
-		},
+	requireDesktopOptIn(t)
+
+	event := prEvent{
+		headline: headlineApproved,
+		key:      "kylesnowschwartz/gh-pr-notify#1",
+		prTitle:  "test: silent notification",
+		url:      "https://github.com/kylesnowschwartz/gh-pr-notify/pull/1",
 	}
 
-	if err := sendNotification(pr, "none"); err != nil {
+	if err := sendNotification(event, "none"); err != nil {
 		t.Fatalf("sendNotification silent: %v", err)
 	}
 }
 
 func TestSendNotificationEscaping(t *testing.T) {
-	pr := PR{
-		Number: 99,
-		Title:  `fix: handle "quoted" and \backslash titles`,
-		URL:    "https://github.com/test/repo/pull/99",
-		Repository: Repository{
-			Name:          "repo",
-			NameWithOwner: "test/repo",
-		},
+	requireDesktopOptIn(t)
+
+	event := prEvent{
+		headline: headlineApproved,
+		key:      "test/repo#99",
+		prTitle:  `fix: handle "quoted" and \backslash titles`,
+		url:      "https://github.com/test/repo/pull/99",
 	}
 
-	if err := sendNotification(pr, "default"); err != nil {
+	if err := sendNotification(event, "default"); err != nil {
 		t.Fatalf("sendNotification with special chars: %v", err)
 	}
 }
@@ -83,18 +105,14 @@ func TestSendBarkNotification(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	pr := PR{
-		Number: 42,
-		Title:  "feat: add dark mode",
-		URL:    "https://github.com/test/repo/pull/42",
-		Repository: Repository{
-			Name:          "repo",
-			NameWithOwner: "test/repo",
-		},
+	event := prEvent{
+		headline: headlineApproved,
+		key:      "test/repo#42",
+		prTitle:  "feat: add dark mode",
+		url:      "https://github.com/test/repo/pull/42",
 	}
 
-	err := sendBarkNotification(pr, "test-device-key", srv.URL, "birdsong")
-	if err != nil {
+	if err := sendBarkNotification(event, "test-device-key", srv.URL, "birdsong"); err != nil {
 		t.Fatalf("sendBarkNotification: %v", err)
 	}
 
@@ -122,6 +140,37 @@ func TestSendBarkNotification(t *testing.T) {
 	}
 }
 
+func TestSendBarkNotificationMergedHeadline(t *testing.T) {
+	var received barkPayload
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &received)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"code": 200, "message": "success"}`))
+	}))
+	defer srv.Close()
+
+	event := prEvent{
+		headline: headlineMerged,
+		key:      "umputun/revdiff#261",
+		prTitle:  "feat: add a thing",
+		url:      "https://github.com/umputun/revdiff/pull/261",
+	}
+
+	if err := sendBarkNotification(event, "key", srv.URL, ""); err != nil {
+		t.Fatalf("sendBarkNotification: %v", err)
+	}
+
+	if received.Title != "PR Merged" {
+		t.Errorf("title = %q, want %q", received.Title, "PR Merged")
+	}
+	if received.Subtitle != "umputun/revdiff#261" {
+		t.Errorf("subtitle = %q, want %q", received.Subtitle, "umputun/revdiff#261")
+	}
+}
+
 func TestSendBarkNotificationEmptySound(t *testing.T) {
 	var rawBody map[string]interface{}
 
@@ -134,15 +183,14 @@ func TestSendBarkNotificationEmptySound(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	pr := PR{
-		Number:     1,
-		Title:      "test",
-		URL:        "https://github.com/test/repo/pull/1",
-		Repository: Repository{Name: "repo", NameWithOwner: "test/repo"},
+	event := prEvent{
+		headline: headlineApproved,
+		key:      "test/repo#1",
+		prTitle:  "test",
+		url:      "https://github.com/test/repo/pull/1",
 	}
 
-	err := sendBarkNotification(pr, "key", srv.URL, "")
-	if err != nil {
+	if err := sendBarkNotification(event, "key", srv.URL, ""); err != nil {
 		t.Fatalf("sendBarkNotification: %v", err)
 	}
 
@@ -159,15 +207,14 @@ func TestSendBarkNotificationServerError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	pr := PR{
-		Number:     1,
-		Title:      "test",
-		URL:        "https://github.com/test/repo/pull/1",
-		Repository: Repository{Name: "repo", NameWithOwner: "test/repo"},
+	event := prEvent{
+		headline: headlineApproved,
+		key:      "test/repo#1",
+		prTitle:  "test",
+		url:      "https://github.com/test/repo/pull/1",
 	}
 
-	err := sendBarkNotification(pr, "bad-key", srv.URL, "")
-	if err == nil {
+	if err := sendBarkNotification(event, "bad-key", srv.URL, ""); err == nil {
 		t.Fatal("expected error for bad device key, got nil")
 	}
 }

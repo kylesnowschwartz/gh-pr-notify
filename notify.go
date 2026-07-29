@@ -10,7 +10,21 @@ import (
 	"time"
 )
 
-// sendNotification sends a macOS notification for an approved PR via osascript.
+// Headlines shown as the notification title.
+const (
+	headlineApproved = "PR Approved"
+	headlineMerged   = "PR Merged"
+)
+
+// prEvent is a single PR change worth announcing.
+type prEvent struct {
+	headline string // headlineApproved or headlineMerged
+	key      string // "envato/repo#123"
+	prTitle  string
+	url      string
+}
+
+// sendNotification sends a macOS notification for a PR event via osascript.
 //
 // Sound can be "default", "none" (silent), or any macOS system sound name
 // (Basso, Blow, Bottle, Frog, Funk, Glass, Hero, Morse, Ping, Pop, Purr,
@@ -18,11 +32,7 @@ import (
 //
 // osascript can't open URLs on click (that goes to Script Editor), but the
 // notification text contains the PR identifier and title - enough to find it.
-func sendNotification(pr PR, sound string) error {
-	title := "PR Approved"
-	subtitle := pr.Key()
-	message := pr.Title
-
+func sendNotification(event prEvent, sound string) error {
 	// AppleScript double-quoted strings need backslashes and quotes escaped.
 	// Order matters: escape backslashes first, then quotes.
 	escape := func(s string) string {
@@ -33,7 +43,7 @@ func sendNotification(pr PR, sound string) error {
 
 	script := fmt.Sprintf(
 		`display notification "%s" with title "%s" subtitle "%s"`,
-		escape(message), escape(title), escape(subtitle),
+		escape(event.prTitle), escape(event.headline), escape(event.key),
 	)
 	if sound != "none" {
 		script += fmt.Sprintf(` sound name "%s"`, escape(sound))
@@ -62,13 +72,13 @@ var barkHTTPClient = &http.Client{Timeout: 10 * time.Second}
 
 // sendBarkNotification pushes a notification to an iOS device via the Bark API.
 // Tapping the notification opens the PR URL in Safari.
-func sendBarkNotification(pr PR, key, server, sound string) error {
+func sendBarkNotification(event prEvent, deviceKey, server, sound string) error {
 	payload := barkPayload{
-		DeviceKey: key,
-		Title:     "PR Approved",
-		Subtitle:  pr.Key(),
-		Body:      pr.Title,
-		URL:       pr.URL,
+		DeviceKey: deviceKey,
+		Title:     event.headline,
+		Subtitle:  event.key,
+		Body:      event.prTitle,
+		URL:       event.url,
 		Group:     "gh-pr-notify",
 		Sound:     sound,
 	}
