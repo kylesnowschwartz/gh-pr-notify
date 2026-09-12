@@ -35,6 +35,13 @@ if ! gh auth status >/dev/null 2>&1; then
   error "gh CLI not authenticated. Run: gh auth login"
 fi
 
+# Clicking a notification opens the PR only when terminal-notifier is installed.
+# Without it, notifications still arrive via AppleScript.
+HAS_TERMINAL_NOTIFIER=0
+if command -v terminal-notifier >/dev/null 2>&1; then
+  HAS_TERMINAL_NOTIFIER=1
+fi
+
 # --- Get the binary ---
 
 install_binary() {
@@ -186,7 +193,17 @@ info "  Binary:  ${INSTALL_DIR}/gh-pr-notify"
 info "  Logs:    ${STATE_DIR}/gh-pr-notify.log"
 info "  Config:  ${PLIST_DIR}/${PLIST_NAME}"
 info ""
-info "Polls every 60s. You'll get a notification when a PR is approved."
+info "Polls every 60s. You'll get a notification when a PR is approved or merged."
+if [ "$HAS_TERMINAL_NOTIFIER" = 1 ]; then
+  info "Clicking a notification opens the PR (via terminal-notifier)."
+  info "If notifications do not appear, allow terminal-notifier under System Settings > Notifications,"
+  info "or run: terminal-notifier -diagnose"
+else
+  info "To make notifications clickable, install terminal-notifier and restart the service:"
+  info "  brew install terminal-notifier"
+  info "  launchctl kickstart -k gui/\$(id -u)/com.gh-pr-notify"
+  info "Allow it when macOS asks; see the README if no prompt appears."
+fi
 if [ -n "$BARK_KEY" ]; then
   info "Bark push notifications enabled (server: ${BARK_SERVER})."
 else

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os/exec"
@@ -24,15 +25,114 @@ type prEvent struct {
 	url      string
 }
 
-// sendNotification sends a macOS notification for a PR event via osascript.
+// desktopNotifier posts a macOS notification for a PR event.
 //
 // Sound can be "default", "none" (silent), or any macOS system sound name
 // (Basso, Blow, Bottle, Frog, Funk, Glass, Hero, Morse, Ping, Pop, Purr,
-// Sosumi, Submarine, Tink). Pass "none" to suppress the sound entirely.
+// Sosumi, Submarine, Tink).
+type desktopNotifier interface {
+	send(event prEvent, sound string) error
+	// describe says, for the startup log, which mechanism is in use and what
+	// clicking a notification does.
+	describe() string
+}
+
+// terminalNotifierCommand is the CLI that posts clickable notifications.
+// Homebrew installs it with: brew install terminal-notifier
+const terminalNotifierCommand = "terminal-notifier"
+
+// selectDesktopNotifier prefers terminal-notifier, whose notifications open the
+// PR when clicked, and falls back to osascript, whose notifications cannot.
+func selectDesktopNotifier() desktopNotifier {
+	if path, err := exec.LookPath(terminalNotifierCommand); err == nil {
+		return terminalNotifier{path: path, fallback: osascriptNotifier{}}
+	}
+	return osascriptNotifier{}
+}
+
+// terminalNotifier posts notifications through terminal-notifier. Clicking one
+// opens the PR in the default browser. terminal-notifier hands the notification
+// to macOS and exits, so a click is handled even though this process has moved on.
 //
-// osascript can't open URLs on click (that goes to Script Editor), but the
-// notification text contains the PR identifier and title - enough to find it.
-func sendNotification(event prEvent, sound string) error {
+// When terminal-notifier fails, the event goes out through fallback instead so
+// it still reaches the desktop, and the returned error says what went wrong.
+type terminalNotifier struct {
+	path     string
+	fallback desktopNotifier
+}
+
+func (n terminalNotifier) describe() string {
+	return "desktop notifications via terminal-notifier; clicking one opens the PR"
+}
+
+// terminalNotifierExitNotAuthorized is terminal-notifier's exit status when
+// macOS has not granted it permission to post notifications.
+const terminalNotifierExitNotAuthorized = 3
+
+func (n terminalNotifier) send(event prEvent, sound string) error {
+	cmd := exec.Command(n.path, terminalNotifierArgs(event, sound)...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err == nil {
+		return nil
+	}
+
+	var cause string
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == terminalNotifierExitNotAuthorized {
+		cause = fmt.Sprintf("terminal-notifier is not allowed to post notifications "+
+			"(enable it under System Settings > Notifications, then check with: %s -diagnose)",
+			terminalNotifierCommand)
+	} else {
+		cause = fmt.Sprintf("terminal-notifier failed: %v: %s", err, strings.TrimSpace(stderr.String()))
+	}
+
+	if fallbackErr := n.fallback.send(event, sound); fallbackErr != nil {
+		return fmt.Errorf("%s; the fallback failed too: %w", cause, fallbackErr)
+	}
+	return fmt.Errorf("%s; this notification went out without click-to-open", cause)
+}
+
+// terminalNotifierArgs builds the argument list for one notification.
+//
+// The PR key doubles as the notification group, so a merge notice replaces a
+// still-visible approval notice for the same PR instead of stacking under it.
+func terminalNotifierArgs(event prEvent, sound string) []string {
+	args := []string{
+		"-title", event.headline,
+		"-subtitle", plistLiteral(event.key),
+		"-message", plistLiteral(event.prTitle),
+		"-open", event.url,
+		"-group", event.key,
+	}
+	if sound != "none" {
+		args = append(args, "-sound", sound)
+	}
+	return args
+}
+
+// plistLiteral marks a free-text argument so terminal-notifier reads it as a
+// plain string. It parses each value as a property list, so a value starting
+// with '[', '(', '{' or a quote would otherwise be rejected or mangled. A
+// leading backslash is stripped by terminal-notifier and forces plain-string
+// handling for whatever follows.
+func plistLiteral(s string) string {
+	return `\` + s
+}
+
+// osascriptNotifier posts notifications through AppleScript's display
+// notification. Clicking one does nothing useful (it activates Script Editor),
+// but the text carries the PR identifier and title, which is enough to find it.
+type osascriptNotifier struct{}
+
+func (osascriptNotifier) describe() string {
+	return "desktop notifications via osascript; clicking one does not open the PR " +
+		"(install terminal-notifier for that: brew install terminal-notifier)"
+}
+
+func (osascriptNotifier) send(event prEvent, sound string) error {
 	// AppleScript double-quoted strings need backslashes and quotes escaped.
 	// Order matters: escape backslashes first, then quotes.
 	escape := func(s string) string {

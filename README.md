@@ -18,6 +18,28 @@ Requires [gh CLI](https://cli.github.com/) (`brew install gh`) and an authentica
 
 Downloads a pre-built binary or builds from source if Go is installed. Sets up a launchd service that starts on login and restarts on failure.
 
+### Clickable notifications
+
+With [terminal-notifier](https://github.com/julienXX/terminal-notifier) installed, clicking a notification opens the PR in your browser. Without it, notifications still arrive through AppleScript but clicking them does nothing useful.
+
+```sh
+brew install terminal-notifier
+```
+
+macOS asks once whether terminal-notifier may post notifications. If no prompt appears, launch its bundled app once so macOS registers it, then allow it:
+
+```sh
+open -n "$(brew --prefix terminal-notifier)/terminal-notifier.app" --args -message "Allow notifications"
+```
+
+If notifications still do not appear, `terminal-notifier -diagnose` reports what is wrong. The permission lives under System Settings > Notifications > terminal-notifier. Set its style to Banners or Alerts.
+
+gh-pr-notify picks terminal-notifier when it is on PATH at startup and says which mechanism it is using in its first log lines. Restart the service after installing it:
+
+```sh
+launchctl kickstart -k gui/$(id -u)/com.gh-pr-notify
+```
+
 ### With iOS push notifications (Bark)
 
 ```sh
@@ -74,6 +96,12 @@ gh-pr-notify --bark-key YOUR_DEVICE_KEY
 2. Reads `reviewDecision` and the submitted reviews for each via `gh pr view`
 3. Compares against previous state in `~/.local/state/gh-pr-notify/state.json`
 4. Notifies when a PR gains approval, and when a PR that was open on the last poll turns out to be merged
+
+### Desktop notifications
+
+terminal-notifier hands each notification to macOS with the PR URL attached and exits at once, so nothing lingers between polls. When you click, macOS relaunches terminal-notifier's bundled app in the background and it opens the URL. The PR identifier is also the notification group, so a merge notice replaces a still-visible approval notice for the same PR instead of stacking under it.
+
+If terminal-notifier is installed but macOS has not allowed it to post, the notification goes out through AppleScript instead and the log says how to fix the permission.
 
 ### Reading approval
 

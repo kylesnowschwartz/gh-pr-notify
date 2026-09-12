@@ -62,7 +62,10 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 
+	desktop := selectDesktopNotifier()
+
 	log.Printf("gh-pr-notify %s: polling every %s, heartbeat every %s", version, *interval, *heartbeat)
+	log.Printf("gh-pr-notify: %s", desktop.describe())
 	if barkCfg.key != "" {
 		log.Printf("gh-pr-notify: bark notifications enabled (server: %s)", barkCfg.server)
 	}
@@ -70,7 +73,7 @@ func main() {
 	reporter := &pollReporter{heartbeat: *heartbeat}
 
 	// Run first poll immediately, then loop.
-	poll(statePath, barkCfg, *sound, reporter)
+	poll(statePath, desktop, barkCfg, *sound, reporter)
 
 	for {
 		select {
@@ -78,7 +81,7 @@ func main() {
 			log.Println("shutting down")
 			return
 		case <-time.After(*interval):
-			poll(statePath, barkCfg, *sound, reporter)
+			poll(statePath, desktop, barkCfg, *sound, reporter)
 		}
 	}
 }
@@ -136,7 +139,7 @@ func classifyDeparture(state string) departureAction {
 }
 
 // poll fetches open PRs, announces new approvals and merges, and saves the new state.
-func poll(statePath string, bark barkConfig, sound string, reporter *pollReporter) {
+func poll(statePath string, desktop desktopNotifier, bark barkConfig, sound string, reporter *pollReporter) {
 	prs, err := fetchOpenPRs()
 	if err != nil {
 		log.Printf("error fetching PRs: %v", err)
@@ -195,7 +198,7 @@ func poll(statePath string, bark barkConfig, sound string, reporter *pollReporte
 	for _, event := range events {
 		log.Printf("%s: %s - %s", event.headline, event.key, event.prTitle)
 
-		if err := sendNotification(event, sound); err != nil {
+		if err := desktop.send(event, sound); err != nil {
 			log.Printf("notification error for %s: %v", event.key, err)
 		}
 		if bark.key != "" {
